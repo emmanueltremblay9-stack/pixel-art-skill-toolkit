@@ -42,8 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
 def render_main(argv: list[str] | None = None) -> int:
     parser = build_render_parser()
     args = parser.parse_args(argv)
-    document = load_document(args.input)
-    save_png(document, args.output, scale=args.scale)
+    try:
+        document = load_document(args.input)
+        save_png(document, args.output, scale=args.scale)
+    except (OSError, UnicodeError, ValueError) as exc:
+        parser.error(str(exc))
     return 0
 
 
@@ -51,32 +54,35 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.command == "render":
-        document = load_document(args.input)
-        save_png(document, args.output, scale=args.scale)
-        return 0
+    try:
+        if args.command == "render":
+            document = load_document(args.input)
+            save_png(document, args.output, scale=args.scale)
+            return 0
 
-    if args.command == "validate":
-        document = load_document(args.input)
-        image = render_document(document)
-        print(
-            json.dumps(
-                {
-                    "ok": True,
-                    "width": image.width,
-                    "height": image.height,
-                    "mode": image.mode,
-                },
-                indent=2,
+        if args.command == "validate":
+            document = load_document(args.input)
+            image = render_document(document)
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "width": image.width,
+                        "height": image.height,
+                        "mode": image.mode,
+                    },
+                    indent=2,
+                )
             )
-        )
-        return 0
+            return 0
 
-    if args.command == "gui":
-        from .gui import main as gui_main
+        if args.command == "gui":
+            from .gui import main as gui_main
 
-        gui_main(args.input)
-        return 0
+            gui_main(args.input)
+            return 0
+    except (OSError, UnicodeError, ValueError) as exc:
+        parser.error(str(exc))
 
     parser.print_help()
     return 2

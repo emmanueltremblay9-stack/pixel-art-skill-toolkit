@@ -19,7 +19,7 @@ The core idea: AI should not output a full pixel matrix, Base64 image, or long A
 ## Install
 
 ```bash
-git clone https://github.com/Don-Enone/pixel-art-skill-toolkit.git
+git clone https://github.com/emmanueltremblay9-stack/pixel-art-skill-toolkit.git
 cd pixel-art-skill-toolkit
 python -m pip install -e .
 ```
@@ -142,7 +142,9 @@ PYTHONPATH=src python -m pixel_art_skill_toolkit validate examples/slime.json
 
 ## Project Status
 
-This is an alpha implementation intended to establish a practical open-source foundation. The JSON format is intentionally small, but it is designed to evolve without forcing AI systems to emit full pixel matrices.
+This fork is a stability candidate based on upstream commit `2356465dd88f9ff2c62361eb85cce17a8ed61c06`. It remains pre-release while cross-version CI and hands-on GUI checks are completed. The JSON format remains intentionally small and editable.
+
+The renderer rejects recursive palette/component references and caps canvas and scaled output sizes before allocating image buffers. See [docs/json-format.md](docs/json-format.md) for those limits.
 
 ## License
 
