@@ -146,6 +146,16 @@ Run tests:
 PYTHONPATH=src python -m unittest discover -s tests
 ```
 
+Build both distribution formats and exercise the installed commands in fresh virtual environments:
+
+```bash
+python -m pip install build
+python -m build --sdist --wheel --outdir dist
+python scripts/verify_package_artifacts.py dist
+```
+
+The package verifier installs the wheel and source distribution separately, checks the installed console entry points, validates a small JSON sprite, and renders and inspects a PNG without importing from the source tree.
+
 Validate an example:
 
 ```bash
