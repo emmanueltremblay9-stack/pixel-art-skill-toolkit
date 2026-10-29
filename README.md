@@ -32,6 +32,14 @@ Requires Python 3.10+ and Pillow. Tkinter is included with most desktop Python i
 pixel-art-render examples/slime.json -o slime.png --scale 12
 ```
 
+## Block Breaker GUI Prototype
+
+This original, illustrative machine screen is generated from [`examples/block-breaker-gui.json`](examples/block-breaker-gui.json). The PNG below is rendered from that JSON at 4× scale. It shows a target block, break progress, a placeholder drop tile, a redstone enable control, a rear-output marker, and a 7×46 logical energy meter with a bottom-input marker. These are proposals: machine behavior, FE cost, exact GUI size, control semantics, and output-slot count remain undecided.
+
+![Block Breaker machine GUI prototype](examples/block-breaker-gui.png)
+
+The separate [`examples/inventory-panel.json`](examples/inventory-panel.json) demonstrates a Minecraft-style panel composition.
+
 For local source-tree development before installing:
 
 ```bash
