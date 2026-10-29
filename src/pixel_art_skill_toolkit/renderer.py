@@ -163,13 +163,13 @@ def _render_operations(
         elif op_name == "path":
             color = _operation_color(operation, context.palette, op_path)
             width = _positive_int(operation.get("width", 1), f"{op_path}.width")
-            points = [_point(point, origin, f"{op_path}.points") for point in operation.get("points", [])]
+            points = _points(operation, origin, op_path)
             if len(points) < 2:
                 raise ValueError(f"{op_path}.points must contain at least two points.")
             draw.line(points, fill=color, width=width)
         elif op_name == "polygon":
             color = _operation_color(operation, context.palette, op_path)
-            points = [_point(point, origin, f"{op_path}.points") for point in operation.get("points", [])]
+            points = _points(operation, origin, op_path)
             if len(points) < 3:
                 raise ValueError(f"{op_path}.points must contain at least three points.")
             draw.polygon(points, fill=color)
@@ -333,6 +333,16 @@ def _point(value: Any, origin: Point, path: str) -> Point:
         _offset(origin[0], _int(value[0], f"{path}[0]"), f"{path}[0]"),
         _offset(origin[1], _int(value[1], f"{path}[1]"), f"{path}[1]"),
     )
+
+
+def _points(operation: JsonDict, origin: Point, path: str) -> list[Point]:
+    values = operation.get("points", [])
+    if not isinstance(values, list):
+        raise ValueError(f"{path}.points must be an array.")
+    return [
+        _point(value, origin, f"{path}.points[{index}]")
+        for index, value in enumerate(values)
+    ]
 
 
 def _int(value: Any, path: str) -> int:

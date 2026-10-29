@@ -34,9 +34,13 @@ pixel-art-render examples/slime.json -o slime.png --scale 12
 
 ## Block Breaker GUI Prototype
 
-This original, illustrative machine screen is generated from [`examples/block-breaker-gui.json`](examples/block-breaker-gui.json). The PNG below is rendered from that JSON at 4× scale. It shows a target block, break progress, a placeholder drop tile, a redstone enable control, a rear-output marker, and a 7×46 logical energy meter with a bottom-input marker. These are proposals: machine behavior, FE cost, exact GUI size, control semantics, and output-slot count remain undecided.
+The first-pass source and preview are preserved at [commit `7898a5f`](https://github.com/emmanueltremblay9-stack/pixel-art-skill-toolkit/tree/7898a5f2b8aabb67bdcb6efe4e52f541c095d4ca/examples).
 
-![Block Breaker machine GUI prototype](examples/block-breaker-gui.png)
+The skill-guided second pass uses [`examples/block-breaker-gui-v2.json`](examples/block-breaker-gui-v2.json), following the local [pixel-art skill](skill/pixel-art-json/SKILL.md): named palette, layers, reusable components, integer coordinates, and localized edits. It has a clearer 5x7 title and target label, 27 player inventory slots in three rows, and a separate hotbar. The 176x172 logical PNG is rendered at 4x (704x688).
+
+The screen shows a target block, break progress, a placeholder drop tile, a redstone enable control, a rear-output marker, and a 7x46 logical energy meter with a bottom-input marker. These are proposals: machine behavior, FE cost, exact GUI size, control semantics, and output-slot count remain undecided.
+
+![Block Breaker GUI prototype, skill-guided second pass](examples/block-breaker-gui-v2.png)
 
 The separate [`examples/inventory-panel.json`](examples/inventory-panel.json) demonstrates a Minecraft-style panel composition.
 

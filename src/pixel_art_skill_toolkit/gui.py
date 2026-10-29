@@ -185,12 +185,13 @@ class PixelArtEditor:
 
     def open_path(self, path: Path) -> None:
         try:
-            self.document = load_document(path)
+            document = load_document(path)
+            render_document(document)
         except Exception as exc:
             messagebox.showerror("Open failed", str(exc), parent=self.root)
             return
         self.current_path = path
-        self.set_document(self.document)
+        self.set_document(document)
 
     def save_file(self) -> None:
         if self.current_path is None:

@@ -84,6 +84,21 @@ class InputSafetyTest(unittest.TestCase):
             with self.subTest(example=path.name):
                 self.assertGreater(render_document(load_document(path)).width, 0)
 
+    def test_block_breaker_v2_has_separated_vanilla_player_inventory(self) -> None:
+        sample_path = Path(__file__).resolve().parents[1] / "examples" / "block-breaker-gui-v2.json"
+        document = load_document(sample_path)
+        self.assertEqual(document["canvas"]["height"], 172)
+        operations = document["layers"][0]["operations"]
+        slots = [
+            operation for operation in operations
+            if operation.get("op") == "stamp" and operation.get("component") == "inventory_slot"
+        ]
+        self.assertEqual(len(slots), 36)
+        self.assertEqual(sorted({slot["y"] for slot in slots}), [91, 109, 127, 150])
+        expected_x = [7 + 18 * column for column in range(9)]
+        for row_y in (91, 109, 127, 150):
+            self.assertEqual(sorted(slot["x"] for slot in slots if slot["y"] == row_y), expected_x)
+
     def test_palette_cycles_raise_clear_value_error(self) -> None:
         document = make_document(
             palette={"first": "second", "second": "first"},
@@ -108,6 +123,18 @@ class InputSafetyTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, r"must be a point array \[x, y\]"):
             render_document(document)
+
+    def test_rejects_non_array_path_and_polygon_points(self) -> None:
+        for operation_name in ("path", "polygon"):
+            for points in (None, 7):
+                with self.subTest(operation=operation_name, points=points):
+                    document = make_document(
+                        operations=[
+                            {"op": operation_name, "color": "red", "points": points}
+                        ]
+                    )
+                    with self.assertRaisesRegex(ValueError, r"operations\[0\]\.points must be an array"):
+                        render_document(document)
 
     def test_rejects_coordinate_overflow_after_stamp_offsets(self) -> None:
         limit = 2_147_483_647
@@ -136,6 +163,22 @@ class CliAndRoundTripTest(unittest.TestCase):
         self.assertEqual(exit_info.exception.code, 2)
         self.assertNotIn("Traceback", stderr.getvalue())
         self.assertIn("Invalid JSON", stderr.getvalue())
+
+    def test_cli_invalid_path_points_has_clean_error_and_status_two(self) -> None:
+        stderr = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bad_file = Path(temp_dir) / "bad-points.json"
+            save_document(
+                make_document(
+                    operations=[{"op": "path", "color": "red", "points": None}]
+                ),
+                bad_file,
+            )
+            with redirect_stderr(stderr), self.assertRaises(SystemExit) as exit_info:
+                main(["validate", str(bad_file)])
+        self.assertEqual(exit_info.exception.code, 2)
+        self.assertNotIn("Traceback", stderr.getvalue())
+        self.assertIn("operations[0].points must be an array", stderr.getvalue())
 
     def test_cli_missing_file_has_clean_error_and_status_two(self) -> None:
         stderr = io.StringIO()
@@ -187,7 +230,11 @@ class CliAndRoundTripTest(unittest.TestCase):
 
             editor = object.__new__(PixelArtEditor)
             editor.root = Mock()
-            editor.set_document = Mock()
+            editor.document = make_document()
+            editor.current_path = None
+            editor.set_document = Mock(
+                side_effect=lambda new_document: setattr(editor, "document", new_document)
+            )
             editor.open_path(source_path)
             self.assertEqual(editor.document, document)
             self.assertEqual(editor.current_path, source_path)
@@ -218,6 +265,16 @@ class CliAndRoundTripTest(unittest.TestCase):
                     save_document(make_document(), destination)
             self.assertEqual(destination.read_text(encoding="utf-8"), "keep this file")
             self.assertEqual(list(Path(temp_dir).glob(".sprite.json.*.tmp")), [])
+
+    def test_failed_atomic_png_save_preserves_existing_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = Path(temp_dir) / "sprite.png"
+            destination.write_bytes(b"keep this file")
+            with patch("pixel_art_skill_toolkit.renderer.os.replace", side_effect=OSError("blocked")):
+                with self.assertRaisesRegex(OSError, "blocked"):
+                    save_png(make_document(), destination)
+            self.assertEqual(destination.read_bytes(), b"keep this file")
+            self.assertEqual(list(Path(temp_dir).glob(".sprite.*.png")), [])
 
     def test_repeated_rendering_is_deterministic(self) -> None:
         document = make_document(
@@ -250,6 +307,30 @@ class CliAndRoundTripTest(unittest.TestCase):
             side_effect=ValueError("invalid candidate"),
         ), patch("pixel_art_skill_toolkit.gui.messagebox.showerror") as show_error:
             self.assertFalse(editor._set_document_if_valid(make_document()))
+        editor.set_document.assert_not_called()
+        show_error.assert_called_once()
+
+    @unittest.skipIf(PixelArtEditor is None, "Tkinter is unavailable in this Python runtime")
+    def test_gui_invalid_open_keeps_last_document_and_path(self) -> None:
+        previous_document = make_document()
+        previous_path = Path("previous.json")
+        editor = object.__new__(PixelArtEditor)
+        editor.root = Mock()
+        editor.document = previous_document
+        editor.current_path = previous_path
+        editor.set_document = Mock()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            invalid_path = Path(temp_dir) / "invalid-canvas.json"
+            save_document(
+                make_document(canvas={"width": True, "height": 4, "background": None}),
+                invalid_path,
+            )
+            with patch("pixel_art_skill_toolkit.gui.messagebox.showerror") as show_error:
+                editor.open_path(invalid_path)
+
+        self.assertIs(editor.document, previous_document)
+        self.assertEqual(editor.current_path, previous_path)
         editor.set_document.assert_not_called()
         show_error.assert_called_once()
 
