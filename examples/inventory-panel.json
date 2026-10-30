@@ -1,0 +1,67 @@
+{
+  "version": "0.1",
+  "metadata": {
+    "title": "Minecraft inventory panel preview",
+    "description": "A compact, layered inventory panel assembled from the toolkit's existing drawing operations."
+  },
+  "canvas": { "width": 64, "height": 32, "background": null },
+  "palette": {
+    "frame": "#24242c",
+    "edge": "#c7b47e",
+    "edge_shadow": "#746847",
+    "panel": "#394a43",
+    "panel_light": "#5a6e5d",
+    "panel_dark": "#293a34",
+    "gold": "#ddbf70",
+    "gold_shadow": "#86734b",
+    "crystal": "#4e9fbd",
+    "crystal_light": "#b3e2dc",
+    "crystal_shadow": "#32617f",
+    "text_light": "#e5ddc4",
+    "text_muted": "#a5aa91",
+    "button": "#77694a",
+    "button_light": "#b49a5d",
+    "button_dark": "#4d4536"
+  },
+  "layers": [
+    {
+      "name": "panel frame",
+      "operations": [
+        { "op": "rect", "color": "frame", "x": 0, "y": 0, "w": 64, "h": 32 },
+        { "op": "outline_rect", "color": "edge_shadow", "x": 1, "y": 1, "w": 62, "h": 30 },
+        { "op": "outline_rect", "color": "edge", "x": 2, "y": 2, "w": 60, "h": 28 },
+        { "op": "rect", "color": "panel_dark", "x": 4, "y": 4, "w": 56, "h": 24 },
+        { "op": "rect", "color": "panel_light", "x": 4, "y": 4, "w": 56, "h": 4 },
+        { "op": "rect", "color": "gold_shadow", "x": 4, "y": 8, "w": 56, "h": 1 }
+      ]
+    },
+    {
+      "name": "crystal icon",
+      "operations": [
+        { "op": "rect", "color": "panel", "x": 6, "y": 10, "w": 18, "h": 16 },
+        { "op": "outline_rect", "color": "edge_shadow", "x": 6, "y": 10, "w": 18, "h": 16 },
+        { "op": "polygon", "color": "crystal_shadow", "points": [[15, 12], [20, 16], [17, 23], [13, 23], [10, 16]] },
+        { "op": "polygon", "color": "crystal", "points": [[15, 12], [15, 22], [13, 22], [11, 16]] },
+        { "op": "polygon", "color": "crystal_light", "points": [[15, 13], [19, 16], [16, 17], [15, 16]] },
+        { "op": "pixels", "color": "text_light", "points": [[13, 15], [14, 14], [17, 19]] },
+        { "op": "rect", "color": "gold", "x": 14, "y": 23, "w": 3, "h": 1 }
+      ]
+    },
+    {
+      "name": "labels and buttons",
+      "operations": [
+        { "op": "rect", "color": "text_light", "x": 29, "y": 11, "w": 22, "h": 2 },
+        { "op": "rect", "color": "text_muted", "x": 29, "y": 15, "w": 27, "h": 1 },
+        { "op": "rect", "color": "text_muted", "x": 29, "y": 18, "w": 19, "h": 1 },
+        { "op": "rect", "color": "button_dark", "x": 29, "y": 22, "w": 17, "h": 5 },
+        { "op": "rect", "color": "button", "x": 30, "y": 22, "w": 15, "h": 4 },
+        { "op": "rect", "color": "button_light", "x": 30, "y": 22, "w": 15, "h": 1 },
+        { "op": "rect", "color": "gold", "x": 35, "y": 24, "w": 5, "h": 1 },
+        { "op": "rect", "color": "button_dark", "x": 48, "y": 22, "w": 11, "h": 5 },
+        { "op": "rect", "color": "button", "x": 49, "y": 22, "w": 9, "h": 4 },
+        { "op": "rect", "color": "button_light", "x": 49, "y": 22, "w": 9, "h": 1 },
+        { "op": "pixels", "color": "text_light", "points": [[52, 24], [54, 24]] }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -9,7 +10,7 @@ from typing import Any
 
 from PIL import ImageTk
 
-from .format import default_document, pretty_json
+from .format import default_document, parse_json, pretty_json, save_document
 from .renderer import load_document, render_document, save_png
 
 
@@ -27,8 +28,11 @@ class JsonDialog(simpledialog.Dialog):
 
     def validate(self) -> bool:
         try:
-            self.result = json.loads(self.text.get("1.0", "end"))
-        except json.JSONDecodeError as exc:
+            result = parse_json(self.text.get("1.0", "end"))
+            if not isinstance(result, dict):
+                raise ValueError("An operation must be a JSON object.")
+            self.result = result
+        except (json.JSONDecodeError, ValueError) as exc:
             messagebox.showerror("Invalid JSON", str(exc), parent=self)
             return False
         return True
@@ -181,20 +185,30 @@ class PixelArtEditor:
 
     def open_path(self, path: Path) -> None:
         try:
-            self.document = load_document(path)
+            document = load_document(path)
+            render_document(document)
         except Exception as exc:
             messagebox.showerror("Open failed", str(exc), parent=self.root)
             return
         self.current_path = path
-        self.set_document(self.document)
+        self.set_document(document)
 
     def save_file(self) -> None:
         if self.current_path is None:
             self.save_file_as()
             return
+        self._save_to_path(self.current_path)
+
+    def _save_to_path(self, path: Path) -> bool:
         if not self.apply_json(show_success=False):
-            return
-        self.current_path.write_text(pretty_json(self.document), encoding="utf-8")
+            return False
+        try:
+            save_document(self.document, path)
+        except (OSError, UnicodeError, ValueError) as exc:
+            messagebox.showerror("Save failed", str(exc), parent=self.root)
+            return False
+        self.current_path = path
+        return True
 
     def save_file_as(self) -> None:
         path = filedialog.asksaveasfilename(
@@ -204,8 +218,7 @@ class PixelArtEditor:
         )
         if not path:
             return
-        self.current_path = Path(path)
-        self.save_file()
+        self._save_to_path(Path(path))
 
     def export_png(self) -> None:
         if not self.apply_json(show_success=False):
@@ -231,7 +244,7 @@ class PixelArtEditor:
 
     def apply_json(self, show_success: bool = True) -> bool:
         try:
-            document = json.loads(self.json_text.get("1.0", "end"))
+            document = parse_json(self.json_text.get("1.0", "end"))
             render_document(document)
         except Exception as exc:
             messagebox.showerror("Invalid document", str(exc), parent=self.root)
@@ -241,6 +254,15 @@ class PixelArtEditor:
         self.render_preview()
         if show_success:
             self.root.bell()
+        return True
+
+    def _set_document_if_valid(self, document: dict[str, Any]) -> bool:
+        try:
+            render_document(document)
+        except Exception as exc:
+            messagebox.showerror("Invalid document", str(exc), parent=self.root)
+            return False
+        self.set_document(document)
         return True
 
     def format_json(self) -> None:
@@ -324,8 +346,9 @@ class PixelArtEditor:
         value = simpledialog.askstring("Add color", "Color value (#RRGGBB or #RRGGBBAA):", parent=self.root)
         if not value:
             return
-        self.document.setdefault("palette", {})[name] = value
-        self.set_document(self.document)
+        candidate = deepcopy(self.document)
+        candidate.setdefault("palette", {})[name] = value
+        self._set_document_if_valid(candidate)
 
     def edit_palette_color(self) -> None:
         if not self.apply_json(show_success=False):
@@ -334,7 +357,8 @@ class PixelArtEditor:
         if not selection:
             return
         name = selection[0]
-        palette = self.document.setdefault("palette", {})
+        candidate = deepcopy(self.document)
+        palette = candidate.setdefault("palette", {})
         value = simpledialog.askstring(
             "Edit color",
             f"Color value for {name}:",
@@ -343,7 +367,7 @@ class PixelArtEditor:
         )
         if value:
             palette[name] = value
-            self.set_document(self.document)
+            self._set_document_if_valid(candidate)
 
     def delete_palette_color(self) -> None:
         if not self.apply_json(show_success=False):
@@ -353,8 +377,9 @@ class PixelArtEditor:
             return
         name = selection[0]
         if messagebox.askyesno("Delete color", f"Delete palette color {name}?", parent=self.root):
-            self.document.get("palette", {}).pop(name, None)
-            self.set_document(self.document)
+            candidate = deepcopy(self.document)
+            candidate.get("palette", {}).pop(name, None)
+            self._set_document_if_valid(candidate)
 
     def add_operation(self) -> None:
         if not self.apply_json(show_success=False):
@@ -371,9 +396,10 @@ class PixelArtEditor:
         dialog = JsonDialog(self.root, "Add operation", template)
         if dialog.result is None:
             return
-        container = self._default_operation_container()
+        candidate = deepcopy(self.document)
+        container = self._default_operation_container(candidate)
         container.append(dialog.result)
-        self.set_document(self.document)
+        self._set_document_if_valid(candidate)
 
     def edit_operation(self) -> None:
         if not self.apply_json(show_success=False):
@@ -385,8 +411,10 @@ class PixelArtEditor:
         dialog = JsonDialog(self.root, "Edit operation", container[index])
         if dialog.result is None:
             return
+        candidate = deepcopy(self.document)
+        container, index = self._operation_container_for_iid(selected[0], candidate)
         container[index] = dialog.result
-        self.set_document(self.document)
+        self._set_document_if_valid(candidate)
 
     def delete_operation(self) -> None:
         if not self.apply_json(show_success=False):
@@ -396,8 +424,10 @@ class PixelArtEditor:
             return
         container, index = self._operation_container_for_iid(selected[0])
         if messagebox.askyesno("Delete operation", "Delete selected operation?", parent=self.root):
+            candidate = deepcopy(self.document)
+            container, index = self._operation_container_for_iid(selected[0], candidate)
             del container[index]
-            self.set_document(self.document)
+            self._set_document_if_valid(candidate)
 
     def _operation_entries(self) -> list[tuple[str, str, int, str]]:
         entries: list[tuple[str, str, int, str]] = []
@@ -421,8 +451,10 @@ class PixelArtEditor:
                     entries.append((f"top:{op_index}", "operations", op_index, str(op_name)))
         return entries
 
-    def _default_operation_container(self) -> list[Any]:
-        layers = self.document.get("layers")
+    def _default_operation_container(self, document: dict[str, Any] | None = None) -> list[Any]:
+        if document is None:
+            document = self.document
+        layers = document.get("layers")
         if isinstance(layers, list):
             if not layers:
                 layers.append({"name": "Layer 1", "operations": []})
@@ -435,20 +467,26 @@ class PixelArtEditor:
                 layer["operations"] = []
                 operations = layer["operations"]
             return operations
-        operations = self.document.setdefault("operations", [])
+        operations = document.setdefault("operations", [])
         if not isinstance(operations, list):
-            self.document["operations"] = []
-            operations = self.document["operations"]
+            document["operations"] = []
+            operations = document["operations"]
         return operations
 
-    def _operation_container_for_iid(self, iid: str) -> tuple[list[Any], int]:
+    def _operation_container_for_iid(
+        self,
+        iid: str,
+        document: dict[str, Any] | None = None,
+    ) -> tuple[list[Any], int]:
+        if document is None:
+            document = self.document
         if iid.startswith("layer:"):
             _, layer_index_text, op_index_text = iid.split(":")
-            layer = self.document["layers"][int(layer_index_text)]
+            layer = document["layers"][int(layer_index_text)]
             return layer["operations"], int(op_index_text)
         if iid.startswith("top:"):
             _, op_index_text = iid.split(":")
-            return self.document["operations"], int(op_index_text)
+            return document["operations"], int(op_index_text)
         raise ValueError(f"Unknown operation id: {iid}")
 
 

@@ -19,7 +19,7 @@ The core idea: AI should not output a full pixel matrix, Base64 image, or long A
 ## Install
 
 ```bash
-git clone https://github.com/Don-Enone/pixel-art-skill-toolkit.git
+git clone https://github.com/emmanueltremblay9-stack/pixel-art-skill-toolkit.git
 cd pixel-art-skill-toolkit
 python -m pip install -e .
 ```
@@ -31,6 +31,18 @@ Requires Python 3.10+ and Pillow. Tkinter is included with most desktop Python i
 ```bash
 pixel-art-render examples/slime.json -o slime.png --scale 12
 ```
+
+## Block Breaker GUI Prototype
+
+The first-pass source and preview are preserved at [commit `7898a5f`](https://github.com/emmanueltremblay9-stack/pixel-art-skill-toolkit/tree/7898a5f2b8aabb67bdcb6efe4e52f541c095d4ca/examples).
+
+The skill-guided second pass uses [`examples/block-breaker-gui-v2.json`](examples/block-breaker-gui-v2.json), following the local [pixel-art skill](skill/pixel-art-json/SKILL.md): named palette, layers, reusable components, integer coordinates, and localized edits. It has a clearer 5x7 title and target label, 27 player inventory slots in three rows, and a separate hotbar. The 176x172 logical PNG is rendered at 4x (704x688).
+
+The screen shows a target block, break progress, a placeholder drop tile, a redstone enable control, a rear-output marker, and a 7x46 logical energy meter with a bottom-input marker. These are proposals: machine behavior, FE cost, exact GUI size, control semantics, and output-slot count remain undecided.
+
+![Block Breaker GUI prototype, skill-guided second pass](examples/block-breaker-gui-v2.png)
+
+The separate [`examples/inventory-panel.json`](examples/inventory-panel.json) demonstrates a Minecraft-style panel composition.
 
 For local source-tree development before installing:
 
@@ -134,6 +146,16 @@ Run tests:
 PYTHONPATH=src python -m unittest discover -s tests
 ```
 
+Build both distribution formats and exercise the installed commands in fresh virtual environments:
+
+```bash
+python -m pip install build
+python -m build --sdist --wheel --outdir dist
+python scripts/verify_package_artifacts.py dist
+```
+
+The package verifier installs the wheel and source distribution separately, checks the installed console entry points, validates a small JSON sprite, and renders and inspects a PNG without importing from the source tree.
+
 Validate an example:
 
 ```bash
@@ -142,7 +164,9 @@ PYTHONPATH=src python -m pixel_art_skill_toolkit validate examples/slime.json
 
 ## Project Status
 
-This is an alpha implementation intended to establish a practical open-source foundation. The JSON format is intentionally small, but it is designed to evolve without forcing AI systems to emit full pixel matrices.
+This fork is a stability candidate based on upstream commit `2356465dd88f9ff2c62361eb85cce17a8ed61c06`. It remains pre-release while cross-version CI and hands-on GUI checks are completed. The JSON format remains intentionally small and editable.
+
+The renderer rejects recursive palette/component references and caps canvas and scaled output sizes before allocating image buffers. See [docs/json-format.md](docs/json-format.md) for those limits.
 
 ## License
 

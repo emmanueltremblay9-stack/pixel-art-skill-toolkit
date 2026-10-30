@@ -39,6 +39,8 @@ python -m pixel_art_skill_toolkit gui examples/slime.json
 - Save JSON
 - Export PNG at an integer scale
 - Scrollable preview area for large scaled sprites
+- Reject invalid edits without replacing the last valid document
+- Save JSON and PNG through temporary files so a failed write does not truncate an existing export
 
 ## Workflow
 

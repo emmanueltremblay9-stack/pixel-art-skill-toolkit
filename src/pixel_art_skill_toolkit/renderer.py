@@ -1,16 +1,25 @@
 from __future__ import annotations
 
-import json
+import math
+import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from PIL import Image, ImageColor, ImageDraw
+
+from .format import parse_json
 
 
 JsonDict = dict[str, Any]
 Point = tuple[int, int]
 Color = tuple[int, int, int, int]
+MAX_CANVAS_PIXELS = 4_194_304
+MAX_OUTPUT_PIXELS = 16_777_216
+MAX_COMPONENT_DEPTH = 64
+MAX_COLOR_REFERENCE_DEPTH = 64
+MAX_COORDINATE_ABS = 2_147_483_647
 
 
 @dataclass(frozen=True)
@@ -20,8 +29,7 @@ class RenderContext:
 
 
 def load_document(path: str | Path) -> JsonDict:
-    with Path(path).open("r", encoding="utf-8") as file:
-        document = json.load(file)
+    document = parse_json(Path(path).read_text(encoding="utf-8"))
     if not isinstance(document, dict):
         raise ValueError("Pixel art document must be a JSON object.")
     return document
@@ -29,19 +37,59 @@ def load_document(path: str | Path) -> JsonDict:
 
 def save_png(document: JsonDict, output_path: str | Path, scale: int | None = None) -> None:
     image = render_document(document, scale=scale)
-    image.save(output_path)
+    destination = Path(output_path)
+    temporary_path: str | None = None
+    try:
+        descriptor, temporary_path = tempfile.mkstemp(
+            prefix=f".{destination.stem}.",
+            suffix=".png",
+            dir=destination.parent,
+        )
+        os.close(descriptor)
+        image.save(temporary_path, format="PNG")
+        os.replace(temporary_path, destination)
+    except Exception:
+        if temporary_path is not None:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
+        raise
 
 
 def render_document(document: JsonDict, scale: int | None = None) -> Image.Image:
+    if not isinstance(document, dict):
+        raise ValueError("Pixel art document must be a JSON object.")
+
     canvas = _required_object(document, "canvas")
+    palette = _required_object(document, "palette")
     width = _positive_int(canvas.get("width"), "canvas.width")
     height = _positive_int(canvas.get("height"), "canvas.height")
-    background = _resolve_color(canvas.get("background"), document.get("palette", {}))
+    canvas_pixels = width * height
+    if canvas_pixels > MAX_CANVAS_PIXELS:
+        raise ValueError(
+            f"canvas exceeds the maximum pixel count of {MAX_CANVAS_PIXELS:,}."
+        )
+
+    scale_value: int | None = None
+    if scale is not None:
+        scale_value = _positive_int(scale, "scale")
+        output_pixels = canvas_pixels * scale_value * scale_value
+        if output_pixels > MAX_OUTPUT_PIXELS:
+            raise ValueError(
+                f"scaled image exceeds the maximum pixel count of {MAX_OUTPUT_PIXELS:,}."
+            )
+
+    components = document.get("components", {})
+    if not isinstance(components, dict):
+        raise ValueError("components must be an object.")
+
+    background = _resolve_color(canvas.get("background"), palette)
 
     image = Image.new("RGBA", (width, height), background)
     context = RenderContext(
-        palette=_required_object(document, "palette"),
-        components=document.get("components", {}) or {},
+        palette=palette,
+        components=components,
     )
 
     layers = document.get("layers")
@@ -53,7 +101,10 @@ def render_document(document: JsonDict, scale: int | None = None) -> Image.Image
         for layer_index, layer in enumerate(layers):
             if not isinstance(layer, dict):
                 raise ValueError(f"layers[{layer_index}] must be an object.")
-            if layer.get("visible", True) is False:
+            visible = layer.get("visible", True)
+            if not isinstance(visible, bool):
+                raise ValueError(f"layers[{layer_index}].visible must be a boolean.")
+            if not visible:
                 continue
             opacity = _opacity(layer.get("opacity", 1.0), f"layers[{layer_index}].opacity")
             layer_image = Image.new("RGBA", image.size, (0, 0, 0, 0))
@@ -68,8 +119,7 @@ def render_document(document: JsonDict, scale: int | None = None) -> Image.Image
                 layer_image.putalpha(alpha)
             image.alpha_composite(layer_image)
 
-    if scale is not None:
-        scale_value = _positive_int(scale, "scale")
+    if scale_value is not None:
         if scale_value != 1:
             image = image.resize((width * scale_value, height * scale_value), Image.Resampling.NEAREST)
     return image
@@ -81,6 +131,7 @@ def _render_operations(
     context: RenderContext,
     origin: Point = (0, 0),
     path: str = "operations",
+    component_stack: tuple[str, ...] = (),
 ) -> None:
     if not isinstance(operations, list):
         raise ValueError(f"{path} must be an array.")
@@ -112,13 +163,13 @@ def _render_operations(
         elif op_name == "path":
             color = _operation_color(operation, context.palette, op_path)
             width = _positive_int(operation.get("width", 1), f"{op_path}.width")
-            points = [_point(point, origin, f"{op_path}.points") for point in operation.get("points", [])]
+            points = _points(operation, origin, op_path)
             if len(points) < 2:
                 raise ValueError(f"{op_path}.points must contain at least two points.")
             draw.line(points, fill=color, width=width)
         elif op_name == "polygon":
             color = _operation_color(operation, context.palette, op_path)
-            points = [_point(point, origin, f"{op_path}.points") for point in operation.get("points", [])]
+            points = _points(operation, origin, op_path)
             if len(points) < 3:
                 raise ValueError(f"{op_path}.points must contain at least three points.")
             draw.polygon(points, fill=color)
@@ -138,7 +189,7 @@ def _render_operations(
         elif op_name == "erase":
             _erase(image, draw, operation, origin, op_path)
         elif op_name == "stamp":
-            _stamp(image, operation, context, origin, op_path)
+            _stamp(image, operation, context, origin, op_path, component_stack)
         else:
             raise ValueError(f"Unsupported operation {op_name!r} at {op_path}.")
 
@@ -149,12 +200,18 @@ def _stamp(
     context: RenderContext,
     origin: Point,
     path: str,
+    component_stack: tuple[str, ...],
 ) -> None:
     component_name = operation.get("component")
     if not isinstance(component_name, str):
         raise ValueError(f"{path}.component must be a string.")
     if component_name not in context.components:
         raise ValueError(f"{path}.component references unknown component {component_name!r}.")
+    if component_name in component_stack:
+        cycle = " -> ".join((*component_stack, component_name))
+        raise ValueError(f"recursive component stamp detected: {cycle}.")
+    if len(component_stack) >= MAX_COMPONENT_DEPTH:
+        raise ValueError(f"component stamp nesting exceeds {MAX_COMPONENT_DEPTH} levels.")
 
     component = context.components[component_name]
     if isinstance(component, list):
@@ -168,13 +225,17 @@ def _stamp(
 
     x = _int(operation.get("x", 0), f"{path}.x")
     y = _int(operation.get("y", 0), f"{path}.y")
-    stamp_origin = (origin[0] + x - anchor[0], origin[1] + y - anchor[1])
+    stamp_origin = (
+        _offset(origin[0], x - anchor[0], f"{path}.x"),
+        _offset(origin[1], y - anchor[1], f"{path}.y"),
+    )
     _render_operations(
         image,
         component_operations,
         context,
         origin=stamp_origin,
         path=f"components.{component_name}.operations",
+        component_stack=(*component_stack, component_name),
     )
 
 
@@ -202,13 +263,27 @@ def _required_object(document: JsonDict, key: str) -> JsonDict:
     return value
 
 
-def _resolve_color(value: Any, palette: dict[str, Any]) -> Color:
+def _resolve_color(
+    value: Any,
+    palette: dict[str, Any],
+    resolving: tuple[str, ...] = (),
+) -> Color:
     if value is None or value == "transparent":
         return (0, 0, 0, 0)
     if isinstance(value, str) and value in palette:
-        return _resolve_color(palette[value], palette)
+        if value in resolving:
+            cycle = " -> ".join((*resolving, value))
+            raise ValueError(f"palette color reference cycle detected: {cycle}.")
+        if len(resolving) >= MAX_COLOR_REFERENCE_DEPTH:
+            raise ValueError(
+                f"palette color reference chain exceeds {MAX_COLOR_REFERENCE_DEPTH} levels."
+            )
+        return _resolve_color(palette[value], palette, (*resolving, value))
     if isinstance(value, str):
-        return ImageColor.getcolor(value, "RGBA")
+        try:
+            return ImageColor.getcolor(value, "RGBA")
+        except ValueError as exc:
+            raise ValueError(f"Invalid color value: {value!r}.") from exc
     if isinstance(value, list) and len(value) in (3, 4):
         channels = [_channel(channel) for channel in value]
         if len(channels) == 3:
@@ -230,32 +305,60 @@ def _operation_color(operation: JsonDict, palette: dict[str, Any], path: str) ->
 
 
 def _box(operation: JsonDict, origin: Point, path: str) -> tuple[int, int, int, int]:
-    x = origin[0] + _int(operation.get("x"), f"{path}.x")
-    y = origin[1] + _int(operation.get("y"), f"{path}.y")
+    x = _offset(origin[0], _int(operation.get("x"), f"{path}.x"), f"{path}.x")
+    y = _offset(origin[1], _int(operation.get("y"), f"{path}.y"), f"{path}.y")
     width = _positive_int(operation.get("w"), f"{path}.w")
     height = _positive_int(operation.get("h"), f"{path}.h")
-    return (x, y, x + width - 1, y + height - 1)
+    return (
+        x,
+        y,
+        _offset(x, width - 1, f"{path}.w end"),
+        _offset(y, height - 1, f"{path}.h end"),
+    )
 
 
 def _line_points(operation: JsonDict, origin: Point, path: str) -> tuple[int, int, int, int]:
     return (
-        origin[0] + _int(operation.get("x1"), f"{path}.x1"),
-        origin[1] + _int(operation.get("y1"), f"{path}.y1"),
-        origin[0] + _int(operation.get("x2"), f"{path}.x2"),
-        origin[1] + _int(operation.get("y2"), f"{path}.y2"),
+        _offset(origin[0], _int(operation.get("x1"), f"{path}.x1"), f"{path}.x1"),
+        _offset(origin[1], _int(operation.get("y1"), f"{path}.y1"), f"{path}.y1"),
+        _offset(origin[0], _int(operation.get("x2"), f"{path}.x2"), f"{path}.x2"),
+        _offset(origin[1], _int(operation.get("y2"), f"{path}.y2"), f"{path}.y2"),
     )
 
 
 def _point(value: Any, origin: Point, path: str) -> Point:
-    if not isinstance(value, list | tuple) or len(value) < 2:
+    if not isinstance(value, list | tuple) or len(value) != 2:
         raise ValueError(f"{path} must be a point array [x, y].")
-    return (origin[0] + _int(value[0], f"{path}[0]"), origin[1] + _int(value[1], f"{path}[1]"))
+    return (
+        _offset(origin[0], _int(value[0], f"{path}[0]"), f"{path}[0]"),
+        _offset(origin[1], _int(value[1], f"{path}[1]"), f"{path}[1]"),
+    )
+
+
+def _points(operation: JsonDict, origin: Point, path: str) -> list[Point]:
+    values = operation.get("points", [])
+    if not isinstance(values, list):
+        raise ValueError(f"{path}.points must be an array.")
+    return [
+        _point(value, origin, f"{path}.points[{index}]")
+        for index, value in enumerate(values)
+    ]
 
 
 def _int(value: Any, path: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{path} must be an integer.")
+    return _coordinate(value, path)
+
+
+def _coordinate(value: int, path: str) -> int:
+    if value < -MAX_COORDINATE_ABS or value > MAX_COORDINATE_ABS:
+        raise ValueError(f"{path} must be between {-MAX_COORDINATE_ABS} and {MAX_COORDINATE_ABS}.")
     return value
+
+
+def _offset(origin: int, offset: int, path: str) -> int:
+    return _coordinate(origin + offset, path)
 
 
 def _positive_int(value: Any, path: str) -> int:
@@ -267,7 +370,9 @@ def _positive_int(value: Any, path: str) -> int:
 
 def _opacity(value: Any, path: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
-        raise ValueError(f"{path} must be a number.")
+        raise ValueError(f"{path} must be a finite number.")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{path} must be a finite number.")
     if value < 0 or value > 1:
         raise ValueError(f"{path} must be between 0 and 1.")
     return float(value)

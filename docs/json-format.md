@@ -19,6 +19,10 @@ Pixel Art JSON stores high-level drawing intent instead of a final pixel matrix.
 
 Use integer pixel coordinates. The origin is the top-left pixel. Rectangles use `x`, `y`, `w`, and `h`, where `w` and `h` are pixel counts.
 
+The renderer accepts canvases up to 4,194,304 pixels. When scaling, the final image is limited to 16,777,216 pixels. Coordinates must fit in the signed 32-bit range. These limits are checked before image allocation so malformed or accidental sizes fail with a readable error instead of exhausting memory. Palette references and component stamps may nest up to 64 levels; cycles are rejected.
+
+Documents must be strict JSON objects. Duplicate object keys and non-standard numeric constants such as `NaN` and `Infinity` are rejected.
+
 ## Colors
 
 Colors can be:
@@ -125,7 +129,7 @@ Small local pixel clusters. Keep this short; do not use it as a full sprite matr
 { "op": "pixels", "color": "shine", "points": [[6, 6], [7, 6], [6, 7]] }
 ```
 
-Individual points may override the operation color:
+Individual points may override the operation color with a three-item `[x, y, color]` tuple:
 
 ```json
 { "op": "pixels", "points": [[6, 6, "red"], [7, 6, "#ffffff"]] }
